@@ -22,14 +22,14 @@ return new class extends Migration
             $table->string('warehouse_name')->nullable();
             $table->integer('in_way_to_client')->nullable();
             $table->integer('in_way_from_client')->nullable();
-            $table->unsignedBigInteger('nm_id')->nullable()->index();
+            $table->bigInteger('nm_id')->nullable()->index();
             $table->string('subject')->nullable();
             $table->string('category')->nullable();
             $table->string('brand')->nullable();
             $table->string('sc_code')->nullable();
             $table->decimal('price', 15, 2)->nullable();
             $table->decimal('discount', 8, 2)->nullable();
-            $table->char('uniq_hash', 32)->unique();
+            $table->char('uniq_hash', 32)->index();
             $table->timestamps();
         });
     }

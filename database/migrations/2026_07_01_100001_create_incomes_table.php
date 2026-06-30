@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('incomes', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('income_id')->index();
+            $table->bigInteger('income_id')->index();
             $table->string('number')->nullable();
             $table->date('date')->nullable();
             $table->date('last_change_date')->nullable();
@@ -21,9 +21,9 @@ return new class extends Migration
             $table->decimal('total_price', 15, 2)->nullable();
             $table->date('date_close')->nullable();
             $table->string('warehouse_name')->nullable();
-            $table->unsignedBigInteger('nm_id')->nullable()->index();
+            $table->bigInteger('nm_id')->nullable()->index();
             // Хэш натурального ключа строки — для идемпотентного upsert
-            $table->char('uniq_hash', 32)->unique();
+            $table->char('uniq_hash', 32)->index();
             $table->timestamps();
         });
     }

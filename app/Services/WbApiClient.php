@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -37,7 +39,31 @@ class WbApiClient
     private function request(): PendingRequest
     {
         return Http::timeout($this->timeout)
-            ->retry(3, 2000, throw: false)
+            ->retry(
+                times: 10,
+                // backoff: уважаем Retry-After, иначе растущая пауза (до 30 с)
+                sleepMilliseconds: function (int $attempt, $exception): int {
+                    if ($exception instanceof RequestException && $exception->response) {
+                        $retryAfter = (int) $exception->response->header('Retry-After');
+                        if ($retryAfter > 0) {
+                            return $retryAfter * 1000;
+                        }
+                    }
+                    return min(30000, $attempt * 3000);
+                },
+                // ретраим только сетевые ошибки, троттлинг (429) и 5xx
+                when: function ($exception): bool {
+                    if ($exception instanceof ConnectionException) {
+                        return true;
+                    }
+                    if ($exception instanceof RequestException && $exception->response) {
+                        $status = $exception->response->status();
+                        return $status === 429 || $status >= 500;
+                    }
+                    return false;
+                },
+                throw: true,
+            )
             ->acceptJson();
     }
 
@@ -74,6 +100,7 @@ class WbApiClient
     public function paginate(string $endpoint, array $params, int $limit): \Generator
     {
         $page = 1;
+        $delayMs = (int) config('wb.request_delay_ms', 250);
 
         do {
             $result = $this->page($endpoint, $params, $page, $limit);
@@ -85,6 +112,11 @@ class WbApiClient
 
             $lastPage = (int) ($result['meta']['last_page'] ?? $page);
             $page++;
+
+            // мягко притормаживаем, чтобы не упираться в rate limit
+            if ($delayMs > 0 && $page <= $lastPage) {
+                usleep($delayMs * 1000);
+            }
         } while ($page <= $lastPage);
     }
 }

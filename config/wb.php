@@ -15,4 +15,7 @@ return [
 
     // Таймаут HTTP-запроса, сек
     'timeout' => (int) env('WB_API_TIMEOUT', 60),
+
+    // Пауза между страницами, мс (снижает риск словить 429 rate limit)
+    'request_delay_ms' => (int) env('WB_API_REQUEST_DELAY_MS', 250),
 ];

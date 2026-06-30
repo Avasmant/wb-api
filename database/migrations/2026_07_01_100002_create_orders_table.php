@@ -20,15 +20,15 @@ return new class extends Migration
             $table->integer('discount_percent')->nullable();
             $table->string('warehouse_name')->nullable();
             $table->string('oblast')->nullable();
-            $table->unsignedBigInteger('income_id')->nullable();
+            $table->bigInteger('income_id')->nullable();
             $table->string('odid')->nullable();
-            $table->unsignedBigInteger('nm_id')->nullable()->index();
+            $table->bigInteger('nm_id')->nullable()->index();
             $table->string('subject')->nullable();
             $table->string('category')->nullable();
             $table->string('brand')->nullable();
             $table->boolean('is_cancel')->nullable();
             $table->dateTime('cancel_dt')->nullable();
-            $table->char('uniq_hash', 32)->unique();
+            $table->char('uniq_hash', 32)->index();
             $table->timestamps();
         });
     }

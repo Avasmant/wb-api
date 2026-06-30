@@ -19,7 +19,7 @@ class WbSyncCommand extends Command
         {--to= : дата конца (Y-m-d); по умолчанию сегодня}
         {--limit= : записей на страницу (по умолчанию config(wb.limit))}';
 
-    protected $description = 'Стянуть данные WB API (incomes/orders/sales/stocks) и сохранить в БД (upsert).';
+    protected $description = 'Стянуть данные WB API (incomes/orders/sales/stocks) и сохранить в БД (полный рефреш).';
 
     private const ENDPOINTS = ['incomes', 'orders', 'sales', 'stocks'];
 
@@ -40,8 +40,21 @@ class WbSyncCommand extends Command
         $from = $this->option('from') ?: config('wb.default_date_from', '2020-01-01');
         $to = $this->option('to') ?: now()->format('Y-m-d');
 
+        $failed = [];
         foreach ($targets as $name) {
-            $this->syncEndpoint($client, $name, $from, $to, $limit);
+            try {
+                $this->syncEndpoint($client, $name, $from, $to, $limit);
+            } catch (\Throwable $e) {
+                // сбой одного эндпоинта не должен ронять остальные
+                $failed[] = $name;
+                $this->error("[{$name}] прервано: " . $e->getMessage());
+            }
+        }
+
+        if ($failed) {
+            $this->error('Не загружены до конца: ' . implode(', ', $failed)
+                . '. Повторный запуск перельёт их заново (полный рефреш).');
+            return self::FAILURE;
         }
 
         return self::SUCCESS;
@@ -61,14 +74,18 @@ class WbSyncCommand extends Command
 
         $model = $this->modelFor($name);
 
+        // Полный рефреш: таблица очищается и заливается актуальный срез источника.
+        // Так число строк в БД точно совпадает с источником, а повторный
+        // запуск идемпотентен (состояние = зеркало API).
+        $model::query()->truncate();
+
         foreach ($client->paginate($name, $params, $limit) as $page => $rows) {
             $mapped = array_map(fn ($row) => $this->mapRow($name, $row), $rows);
-            $updateColumns = $this->updateColumns($mapped);
 
             // Дробим страницу на под-батчи под лимит плейсхолдеров СУБД
-            DB::transaction(function () use ($model, $mapped, $updateColumns) {
+            DB::transaction(function () use ($model, $mapped) {
                 foreach ($this->chunkBySqlLimit($mapped) as $batch) {
-                    $model::upsert($batch, ['uniq_hash'], $updateColumns);
+                    $model::insert($batch);
                 }
             });
 
@@ -88,13 +105,6 @@ class WbSyncCommand extends Command
             'sales'   => Sale::class,
             'stocks'  => Stock::class,
         ][$name];
-    }
-
-    /** Колонки для обновления при конфликте uniq_hash (всё, кроме ключа и created_at). */
-    private function updateColumns(array $mapped): array
-    {
-        $cols = array_keys($mapped[0] ?? []);
-        return array_values(array_diff($cols, ['uniq_hash', 'created_at']));
     }
 
     /**
@@ -123,6 +133,10 @@ class WbSyncCommand extends Command
             'stocks'  => $this->mapStock($r),
         };
 
+        // uniq_hash — контент-отпечаток строки (md5 по всем полям).
+        // Не уникальный; удобен для поиска/группировки одинаковых записей.
+        $row['uniq_hash'] = md5(json_encode($row, JSON_UNESCAPED_UNICODE));
+
         $now = now();
         $row['created_at'] = $now;
         $row['updated_at'] = $now;
@@ -145,10 +159,6 @@ class WbSyncCommand extends Command
             'date_close'       => $this->date($r['date_close'] ?? null),
             'warehouse_name'   => $this->str($r['warehouse_name'] ?? null),
             'nm_id'            => $this->int($r['nm_id'] ?? null),
-            'uniq_hash'        => $this->hash([
-                $r['income_id'] ?? '', $r['nm_id'] ?? '', $r['barcode'] ?? '',
-                $r['tech_size'] ?? '', $r['date'] ?? '', $r['warehouse_name'] ?? '',
-            ]),
         ];
     }
 
@@ -173,10 +183,6 @@ class WbSyncCommand extends Command
             'brand'            => $this->str($r['brand'] ?? null),
             'is_cancel'        => $this->bool($r['is_cancel'] ?? null),
             'cancel_dt'        => $this->datetime($r['cancel_dt'] ?? null),
-            'uniq_hash'        => $this->hash([
-                $r['g_number'] ?? '', $r['odid'] ?? '', $r['nm_id'] ?? '',
-                $r['barcode'] ?? '', $r['date'] ?? '',
-            ]),
         ];
     }
 
@@ -210,12 +216,6 @@ class WbSyncCommand extends Command
             'category'           => $this->str($r['category'] ?? null),
             'brand'              => $this->str($r['brand'] ?? null),
             'is_storno'          => $this->bool($r['is_storno'] ?? null),
-            'uniq_hash'          => $this->hash([
-                // sale_id уникален; запасной ключ — если sale_id пуст
-                ($r['sale_id'] ?? '') !== ''
-                    ? $r['sale_id']
-                    : implode('|', [$r['g_number'] ?? '', $r['date'] ?? '', $r['barcode'] ?? '', $r['nm_id'] ?? '']),
-            ]),
         ];
     }
 
@@ -241,19 +241,10 @@ class WbSyncCommand extends Command
             'sc_code'            => $this->str($r['sc_code'] ?? null),
             'price'              => $this->dec($r['price'] ?? null),
             'discount'           => $this->dec($r['discount'] ?? null),
-            'uniq_hash'          => $this->hash([
-                $r['date'] ?? '', $r['barcode'] ?? '', $r['nm_id'] ?? '',
-                $r['tech_size'] ?? '', $r['warehouse_name'] ?? '',
-            ]),
         ];
     }
 
     // ---- нормализация значений ----
-
-    private function hash(array $parts): string
-    {
-        return md5(implode('|', array_map(fn ($p) => (string) $p, $parts)));
-    }
 
     private function str($v): ?string
     {

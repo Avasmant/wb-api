@@ -25,19 +25,19 @@ return new class extends Migration
             $table->string('country_name')->nullable();
             $table->string('oblast_okrug_name')->nullable();
             $table->string('region_name')->nullable();
-            $table->unsignedBigInteger('income_id')->nullable();
+            $table->bigInteger('income_id')->nullable();
             $table->string('sale_id')->nullable()->index();
             $table->string('odid')->nullable();
             $table->decimal('spp', 8, 2)->nullable();
             $table->decimal('for_pay', 15, 2)->nullable();
             $table->decimal('finished_price', 15, 2)->nullable();
             $table->decimal('price_with_disc', 15, 2)->nullable();
-            $table->unsignedBigInteger('nm_id')->nullable()->index();
+            $table->bigInteger('nm_id')->nullable()->index();
             $table->string('subject')->nullable();
             $table->string('category')->nullable();
             $table->string('brand')->nullable();
             $table->boolean('is_storno')->nullable();
-            $table->char('uniq_hash', 32)->unique();
+            $table->char('uniq_hash', 32)->index();
             $table->timestamps();
         });
     }
